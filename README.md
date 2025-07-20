@@ -1,194 +1,133 @@
-# 🤖 Gemini Agent Integration with OpenAI-Compatible Agents SDK
+# Panaversity AI Assistant — Quickstart Guide
 
-This repo/Colab notebook is a self-practice project to integrate **Google Gemini API** with the **OpenAI-compatible `agents` SDK**. It supports both asynchronous and synchronous flows, custom environment configuration, and flexible agent-level setup.
-
----
-
-## 📌 Objective
-
-- Use **Google Gemini (via OpenAI-compatible wrapper)** inside the `agents` library.
-- Learn different ways to **run agents**, configure **model providers**, and handle **authentication**.
-- Understand how to use:
-    - `.env` + fallback system
-    - `AsyncOpenAI` vs `OpenAI`
-    - `Runner.run` vs `Runner.run_sync`
-    - Agent-level model injection
-    - SDK-wide defaults
+This guide walks you through setting up and running a Gemini-powered chatbot using Chainlit and Agents SDK.
 
 ---
 
-## 🧠 Core Concepts & Recap
+## Table of Contents
 
-### 1. ✅ `.env` + Fallback Pattern
+1. [Environment Setup](#environment-setup)
+2. [Importing Dependencies](#importing-dependencies)
+3. [Session Initialization](#session-initialization)
+4. [Message Handling](#message-handling)
+5. [Key Concepts](#key-concepts)
 
-Store secrets safely in `.env`, but allow hardcoded fallback for testing.
+---
+
+## 1. Environment Setup
+
+First, load your environment variables securely:
 
 ```python
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
-load_dotenv()
-userdata = {"GEMINI_API_KEY": "your_fallback_key"}
+load_dotenv()  # Loads variables from .env file
 
-BASE_URL = os.getenv("BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai/"
-API_KEY = os.getenv("GEMINI_API_KEY") or userdata.get("GEMINI_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME") or "gemini-2.0-flash"
-
-if not BASE_URL or not API_KEY or not MODEL_NAME:
-        raise ValueError("BASE_URL, API_KEY, and MODEL_NAME must be set.")
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key:
+    raise ValueError("GEMINI_API_KEY is not set. Please ensure it is defined in your .env file.")
 ```
 
-> 🔒 **Best Practice:** Use `.env` in production, fallback only in notebooks.
+> **Note:** Never hardcode sensitive data like API keys.
 
 ---
 
-### 2. 🧩 Model Client Initialization (Async Gemini)
+## 2. Importing Dependencies
 
-Use `AsyncOpenAI`, compatible with OpenAI SDK but targeted to Gemini's API.
+Import Chainlit and Agents SDK modules:
 
 ```python
-from agents import AsyncOpenAI, set_tracing_disabled
-
-client = AsyncOpenAI(base_url=BASE_URL, api_key=API_KEY)
-set_tracing_disabled(True)  # Clean output, no trace logs
+import chainlit as cl
+from typing import cast
+from agents import Agent, Runner, AsyncOpenAI, OpenAIChatCompletionsModel
+from agents.run import RunConfig
 ```
+
+- `chainlit`: Manages the chat UI frontend.
+- `Agent`: Represents the LLM agent.
+- `Runner`: Executes the agent.
+- `AsyncOpenAI`: Gemini API wrapper (OpenAI-compatible).
+- `OpenAIChatCompletionsModel`: Standard model interface.
+- `RunConfig`: Holds agent configuration.
 
 ---
 
-### 3. 🧠 Agent Definition with Model
+## 3. Session Initialization
 
-Inject the custom Gemini model into an agent.
+Set up the session when a user connects:
 
 ```python
-from agents import Agent, OpenAIChatCompletionsModel
-
-agent = Agent(
-        name="Assistant",
-        instructions="You only respond in haikus.",
-        model=OpenAIChatCompletionsModel(model=MODEL_NAME, openai_client=client)
-)
+@cl.on_chat_start
+async def start():
+    external_client = AsyncOpenAI(
+        api_key=gemini_api_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    )
+    model = OpenAIChatCompletionsModel(
+        model="gemini-2.0-flash",
+        openai_client=external_client
+    )
+    config = RunConfig(
+        model=model,
+        model_provider=external_client,
+        tracing_disabled=True
+    )
+    cl.user_session.set("chat_history", [])
+    cl.user_session.set("config", config)
+    agent = Agent(name="Assistant", instructions="You are a helpful assistant", model=model)
+    cl.user_session.set("agent", agent)
+    await cl.Message(content="Welcome to the Panaversity AI Assistant! How can I help you today?").send()
 ```
-
-> 📌 The `OpenAIChatCompletionsModel` lets Gemini act like an OpenAI ChatModel.
 
 ---
 
-### 4. ⚙️ Running the Agent (Asynchronous)
+## 4. Message Handling
 
-Ideal for event-driven, streaming, or multi-tasked environments.
+Process each user message and respond:
 
 ```python
-import asyncio
-from agents import Runner
-
-async def main():
-        result = await Runner.run(agent, "What is the meaning of life?")
-        print(result.final_output)
-
-if __name__ == "__main__":
-        asyncio.run(main())
+@cl.on_message
+async def main(message: cl.Message):
+    msg = cl.Message(content="Thinking...")
+    await msg.send()
+    agent: Agent = cast(Agent, cl.user_session.get("agent"))
+    config: RunConfig = cast(RunConfig, cl.user_session.get("config"))
+    history = cl.user_session.get("chat_history") or []
+    history.append({"role": "user", "content": message.content})
+    result = Runner.run_sync(
+        starting_agent=agent,
+        input=history,
+        run_config=config
+    )
+    response_content = result.final_output
+    msg.content = response_content
+    await msg.update()
+    cl.user_session.set("chat_history", result.to_input_list())
+    print(f"User: {message.content}")
+    print(f"Assistant: {response_content}")
 ```
 
-- `Runner.run`: used for asynchronous execution.
-
----
-
-### 5. 🔁 (Optional) Setting Global SDK Defaults
-
-Avoid passing model & client repeatedly:
+Handle errors gracefully:
 
 ```python
-from agents import set_default_openai_client, set_default_openai_api
-
-set_default_openai_client(client=client, use_for_tracing=False)
-set_default_openai_api(
-        "chat.completions",
-        model=MODEL_NAME,
-        base_url=BASE_URL,
-        api_key=API_KEY
-)
+except Exception as e:
+    msg.content = f"Error: {str(e)}"
+    await msg.update()
 ```
 
 ---
 
-### 6. 🧵 Synchronous Alternative
+## 5. Key Concepts
 
-If async is not required, use `run_sync`:
-
-```python
-result = Runner.run_sync(agent=agent, input="Hello")
-print(result.final_output)
-```
-
-> 💡 Simpler for scripts that don’t need async I/O.
-
----
-
-## 🧪 How to Test
-
-Try these one at a time:
-
-- ✅ Test `.env` with and without fallback
-- ✅ Run `asyncio.run(main())`
-- ✅ Replace `Runner.run` with `Runner.run_sync`
-- ✅ Try different model instructions (e.g. "Answer only in emojis")
+| Concept                       | Why It's Important                                      |
+|-------------------------------|--------------------------------------------------------|
+| Session state (`cl.user_session`) | Tracks config, agent, and history per user            |
+| Agent object                  | The LLM and its instructions ("the brain")             |
+| `Runner.run_sync(...)`        | Runs the agent using all chat history                  |
+| History handling              | Gives memory to the assistant (LLMs are stateless)     |
+| Async message updates         | Keeps chat responsive ("Thinking..." → reply)          |
 
 ---
 
-## 📚 Summary Table
-
-| Feature                | Description                                 |
-|------------------------|---------------------------------------------|
-| `.env` + fallback      | Secure and testable credential setup        |
-| `AsyncOpenAI`          | Connect Gemini in async OpenAI-compatible mode |
-| `Agent(..., model=...)`| Custom model injection per agent            |
-| `Runner.run`           | Asynchronous execution                      |
-| `Runner.run_sync`      | Synchronous execution                       |
-| `set_default_*`        | Global defaults for models and clients      |
-
----
-
-## ✅ Final Checklist
-
-Before you re-run after a break:
-
-- Is `.env` file present?
-- Is fallback userdata key working?
-- Are `BASE_URL`, `API_KEY`, and `MODEL_NAME` initialized?
-- Are you using `Runner.run` (async) or `run_sync` (sync) properly?
-- Does the agent have a model assigned?
-
----
-
-## 📎 Reference URLs
-
-- 📘 [Gemini API Documentation](https://ai.google.dev/gemini-api/docs)
-- 🧪 [Agents SDK](https://github.com/openai/openai-python) (with agents)
-- 📄 OpenAI-compatible Gemini wrapper: via any compatible proxy or plugin
-
----
-
-## 🛠️ Improvements to Try Later
-
-- Add `function_tool` calls for tool use
-- Add `run_streamed()` for real-time output
-- Deploy to FastAPI or Gradio UI
-
----
-
-## 👋 Author
-
-Abu-Turab – Self-learning agent SDKs with Gemini in real-world LLM orchestration.
-
----
-
-## 🚦 Runner Methods Comparison
-
-| Method                  | Blocking? | Needs `await`? | Use in `async def`? |
-| ----------------------- | --------- | -------------- | ------------------- |
-| `Runner.run_sync(...)`  | Yes       | No             | Optional            |
-| `await Runner.run(...)` | No        | Yes            | Required            |
-
-- **`Runner.run`**: Asynchronous — program does not block and can move to other agents to complete its task.
-- **`Runner.run_sync`**: Synchronous — program blocks and waits for agent to complete its task.
-- **`Runner.run_streamed`**: Asynchronous — starts streaming output.
+**You're ready to build and extend your own Gemini-powered chatbot!**
