@@ -1,41 +1,32 @@
-# Panaversity AI Assistant — Quickstart Guide
+## Panaversity AI Assistant — Quickstart Guide
 
-This guide walks you through setting up and running a Gemini-powered chatbot using Chainlit and Agents SDK.
-
----
-
-## Table of Contents
-
-1. [Environment Setup](#environment-setup)
-2. [Importing Dependencies](#importing-dependencies)
-3. [Session Initialization](#session-initialization)
-4. [Message Handling](#message-handling)
-5. [Key Concepts](#key-concepts)
+This guide walks you through the logical blocks of building a Chainlit-powered AI assistant using Gemini via an OpenAI-compatible interface.
 
 ---
 
-## 1. Environment Setup
+### 1. Environment Setup
 
-First, load your environment variables securely:
+First, load your environment variables to keep sensitive data (like `GEMINI_API_KEY`) secure:
 
 ```python
 import os
 from dotenv import load_dotenv
 
-load_dotenv()  # Loads variables from .env file
-
+load_dotenv()
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key:
     raise ValueError("GEMINI_API_KEY is not set. Please ensure it is defined in your .env file.")
 ```
 
-> **Note:** Never hardcode sensitive data like API keys.
+**Why?**  
+- Keeps API keys out of your codebase.
+- Stops execution early if config is missing.
 
 ---
 
-## 2. Importing Dependencies
+### 2. Import Chainlit & Agents SDK
 
-Import Chainlit and Agents SDK modules:
+Bring in the required libraries and SDKs:
 
 ```python
 import chainlit as cl
@@ -44,16 +35,17 @@ from agents import Agent, Runner, AsyncOpenAI, OpenAIChatCompletionsModel
 from agents.run import RunConfig
 ```
 
-- `chainlit`: Manages the chat UI frontend.
-- `Agent`: Represents the LLM agent.
-- `Runner`: Executes the agent.
-- `AsyncOpenAI`: Gemini API wrapper (OpenAI-compatible).
-- `OpenAIChatCompletionsModel`: Standard model interface.
-- `RunConfig`: Holds agent configuration.
+**Key Components:**  
+- `chainlit`: Chat UI frontend  
+- `Agent`: Represents your LLM agent  
+- `Runner`: Executes the agent  
+- `AsyncOpenAI`: Gemini wrapper  
+- `OpenAIChatCompletionsModel`: Model interface  
+- `RunConfig`: Configuration holder
 
 ---
 
-## 3. Session Initialization
+### 3. Session Initialization (`@cl.on_chat_start`)
 
 Set up the session when a user connects:
 
@@ -80,11 +72,16 @@ async def start():
     await cl.Message(content="Welcome to the Panaversity AI Assistant! How can I help you today?").send()
 ```
 
+**What happens?**  
+- Initializes Gemini via OpenAI wrapper  
+- Stores config, agent, and chat history in session  
+- Sends a welcome message
+
 ---
 
-## 4. Message Handling
+### 4. Message Handling (`@cl.on_message`)
 
-Process each user message and respond:
+Process each user message:
 
 ```python
 @cl.on_message
@@ -106,28 +103,30 @@ async def main(message: cl.Message):
     cl.user_session.set("chat_history", result.to_input_list())
     print(f"User: {message.content}")
     print(f"Assistant: {response_content}")
-```
-
-Handle errors gracefully:
-
-```python
 except Exception as e:
     msg.content = f"Error: {str(e)}"
     await msg.update()
 ```
 
----
-
-## 5. Key Concepts
-
-| Concept                       | Why It's Important                                      |
-|-------------------------------|--------------------------------------------------------|
-| Session state (`cl.user_session`) | Tracks config, agent, and history per user            |
-| Agent object                  | The LLM and its instructions ("the brain")             |
-| `Runner.run_sync(...)`        | Runs the agent using all chat history                  |
-| History handling              | Gives memory to the assistant (LLMs are stateless)     |
-| Async message updates         | Keeps chat responsive ("Thinking..." → reply)          |
+**Why this flow?**  
+- Shows "Thinking..." for responsiveness  
+- Retrieves agent/config from session  
+- Maintains chat history for context  
+- Updates message with LLM reply  
+- Handles errors gracefully
 
 ---
 
-**You're ready to build and extend your own Gemini-powered chatbot!**
+### 🧠 Key Concepts
+
+| Concept                | Why It Matters                                      |
+|------------------------|-----------------------------------------------------|
+| Session state          | Tracks config, agent, and history per user          |
+| Agent object           | The LLM and its instructions                        |
+| `Runner.run_sync(...)` | Runs the agent with full history                    |
+| History handling       | Gives the assistant memory                          |
+| Async message updates  | Keeps chat responsive and interactive               |
+
+---
+
+You're now ready to build and extend your own Chainlit-powered AI assistant!
